@@ -16,7 +16,6 @@ def is_valid_python_file(filepath):
 def extract_parent_directory(filepath):
 	return os.path.dirname(filepath)
 
-
 def directory_contains_file(dirpath, filepath):
 	directory_files = get_directory_files(dirpath)
 	return filepath in directory_files
