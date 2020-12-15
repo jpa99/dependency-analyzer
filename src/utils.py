@@ -13,6 +13,9 @@ def is_valid_file(filepath):
 def is_valid_python_file(filepath):
 	return os.path.isfile(filepath) and filepath[-3:] == ".py"
 
+def extract_filename(filepath):
+	return filepath.split("/")[-1].split(".")[0]
+
 def extract_parent_directory(filepath):
 	return os.path.dirname(filepath)
 
