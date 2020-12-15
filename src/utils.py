@@ -10,8 +10,20 @@ def is_valid_file(filepath):
 	return os.path.isfile(filepath)
 
 ## Checks if file path is valid python
-def is_valid_python_file(filepath):
+def is_valid_module(filepath):
 	return os.path.isfile(filepath) and filepath[-3:] == ".py"
+
+## Checks if folder path is valid python
+def is_valid_package(package_path):
+	init_filepath = "{package_path}/__init__.py".format(package_path=package_path)
+	return os.path.exists(package_path) and os.path.isfile(init_filepath)
+
+def get_path(dotted_name):
+	stripped = dotted_name.strip('.')
+	dots = len(dotted_name) - len(stripped)
+	prefix = [".." for i in range(dots)]
+	suffix = stripped.split(".")
+	return "/".join(prefix + suffix)
 
 def extract_filename(filepath):
 	return filepath.split("/")[-1].split(".")[0]
