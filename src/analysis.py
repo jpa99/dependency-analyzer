@@ -78,19 +78,22 @@ class DependencyAnalyzer():
             identifier_list.append(identifier)
         return ".".join(identifier_list)
 
-    def handle_dotted_name(self, file, dotted_name_node, context="", alias=""):
-        dotted_name = self.extract_dotted_name(dotted_name_node, file.lines)
-
-        parent_dir_path = utils.extract_parent_directory(file.filepath)
+    ## handle_dotted_name() resolves the import statement given some context, where context refers to information between "from "and "import", if any.
+        # There are 4 possibilities: the 
+    def handle_dotted_name(self, file, node, context_node, alias=""):
+        dotted_name = self.extract_dotted_name(node, file.lines)
         import_file = utils.get_path(dotted_name)
+        context_dotted_name = dotted_name
+        parent_dir = utils.extract_parent_directory(file.filepath)
+        context_path = parent_dir
         
-        context_string = "/{context}".format(context=utils.get_path(context)) if context else ""
-        dotted_context = "{context}.".format(context=context) if context else ""
-        context_dotted_name = "{dotted_context}{dotted_name}".format(dotted_context=dotted_context, dotted_name = dotted_name)
+        if context_node:
+            context = self.extract_dotted_name(context_node, file.lines)
+            context_path = "{parent_dir}/{context}".format(parent_dir = parent_dir, context=utils.get_path(context))
+            context_dotted_name = "{context}.{dotted_name}".format(context=context, dotted_name=dotted_name)
 
-        context_path = "{parent_dir_path}{context_string}".format(parent_dir_path=parent_dir_path, context_string=context_string)
         context_module_path = "{context_path}.py".format(context_path = context_path)
-        package_path = "{context_path}/{import_file}".format(parentdir = parent_dir_path, context_path=context_path, import_file = import_file)
+        package_path = "{context_path}/{import_file}".format(context_path=context_path, import_file = import_file)
         module_path = "{package_path}.py".format(package_path = package_path)
 
         # Check if full import name is valid
@@ -117,36 +120,35 @@ class DependencyAnalyzer():
             self.graph[dotted_name] = set()
             self.graph[file.filepath].add(node)
         else:
-            print("INVALID IMPORT {},{}".format(dotted_name, package_path))
+            print("INVALID IMPORT {} in file {}".format(dotted_name, file.filepath))
         
-    def handle_aliased_import(self, file, aliased_import_node, context):
-        dotted_name_node, as_node, alias_node = aliased_import_node.children
+    def handle_aliased_import(self, file, node, context=None):
+        dotted_name_node, as_node, alias_node = node.children
         alias = self.extract_string(alias_node, file.lines)
         self.handle_dotted_name(file, dotted_name_node, context, alias=alias)
 
-    def handle_wildcard_import(self, file, context):
-        self.handle_dotted_name(file, context)
+    def handle_wildcard_import(self, file, node, context):
+        self.handle_dotted_name(file, context, None)
 
-    def handle_import(self, file, import_children, context=""):
-        for child in import_children:
-            if child.type == "import":
+    def handle_import(self, file, import_children, context=None):
+        for node in import_children:
+            if node.type == "import":
                 pass
-            elif child.type == "dotted_name":
-                self.handle_dotted_name(file, child, context)
-            elif child.type == "aliased_import":
-                self.handle_aliased_import(file, child, context)
-            elif child.type == "wildcard_inport":
-                self.handle_wildcard_import(file, context)
-            elif child.type in ",()":
+            elif node.type == "dotted_name":
+                self.handle_dotted_name(file, node, context)
+            elif node.type == "aliased_import":
+                self.handle_aliased_import(file, node, context)
+            elif node.type == "wildcard_import":
+                self.handle_wildcard_import(file, node, context)
+            elif node.type in ",()":
                 pass
 
             else:
                 assert False
 
     def handle_import_from(self, file, import_from_children):
-        dotted_name_node = import_from_children[1]
-        context_name = self.extract_dotted_name(dotted_name_node, file.lines)
-        self.handle_import(file, import_from_children[2:], context_name)
+        context = import_from_children[1]
+        self.handle_import(file, import_from_children[2:], context=context)
 
     def process_dir(self, dirpath):
         for entry in os.scandir(dirpath):
