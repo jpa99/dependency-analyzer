@@ -1,55 +1,125 @@
+import utils
 from parser import Parser
-import distutils.sysconfig as sysconfig
-import os
 
-## Returns a list of file paths within the specified directory
-def get_directory_files(dirpath):
-	files = []
-	for entry in os.scandir(dirpath):
-		if entry.is_file():
-			files.append(entry.path)
+class DependencyAnalyzer():
+	def __init__(self):
+		self.parser = Parser()
+		self.packages = utils.get_packages()
+		self.graph = {}
+
+	def is_stdlib(self, import_name):
+		lib_name = "{import_name}.py".format(import_name=import_name)
+		return lib_name in self.packages
+
+	def is_site_package(self, import_name):
+		package_name = "site_packages.{import_name}.py".format(import_name=import_name)
+		return package_name in self.packages
+
+	def is_package(self, import_name):
+		return self.is_stdlib(import_name) or self.is_site_package(import_name)
+
+	def print_ast(self, node, count):
+		tab = " "*4*count
+		print(tab + node.type)
+		for child in node.children:
+			print_ast(child, count+1)
+
+	def extract_string(self, start_point, end_point, lines):
+		startline, startidx = start_point
+		endline, endidx = end_point
+		if startline == endline:
+			return lines[startline][startidx:endidx]
+
+		currline = startline + 1
+		substring_list = [lines[startline][startidx:]]
+		while currline < endline:
+			substring_list.append(lines[currline])
+		substring_list.append(lines[endline][:endidx])
+		return "".join(substring_list)
+
+	## Assumption: no multi-line identifiers
+	def extract_dotted_name(self, dotted_name_node, lines):
+		children = dotted_name_node.children
+		identifier_list = []
+		for i in range(0, dotted_name_node.child_count, 2):
+			assert children[i].start_point[0] == children[i].end_point[0]
+			identifier = self.extract_string(children[i].start_point, children[i].end_point, lines)
+			identifier_list.append(identifier)
+		return ".".join(identifier_list)
+
+	def handle_dotted_name(self, filepath, dotted_name_node, lines):
+		dotted_name = self.extract_dotted_name(dotted_name_node, lines)
+		
+		parentdir = utils.extract_parent_directory(filepath)
+		import_file = dotted_name.replace(".", "/")
+		import_path = "{parentdir}/{import_file}.py".format(parentdir = parentdir, import_file = import_file)
+
+		if utils.is_valid_python_file(import_path):
+			self.graph[filepath].add(import_path)
+			self.process_file(import_path)
+		elif self.is_package(dotted_name):
+			self.graph[dotted_name] = set()
+			label = "(stdlib)" if self.is_stdlib(dotted_name) else "(site_package)"
+			labeled_name = "{dotted_name} {label}".format(dotted_name=dotted_name, label=label)
+			self.graph[filepath].add(labeled_name)
 		else:
-			files += parse_files(entry.path)
-	return files
-
-def get_stdlib():
-	lib = set()
-	std_lib = sysconfig.get_python_lib(standard_lib=True)
-	for top, dirs, files in os.walk(std_lib):
-	    for name in files:
-	        if name != '__init__.py' and name[-3:] == '.py':
-	        	lib.add(name)
-	return lib
-
-def process(dirpath, target_filepath):
-	## initialize
-	parser = Parser()
-	stdlib = get_stdlib()
+			print("INVALID IMPORT {}".format(import_path))
+		
 	
-	## Parse directory contents
-	directory_files = get_directory_files(dirpath)
-	if filepath not in directory_files:
-		return None
+	def handle_aliased_import(self, filepath, aliased_import_node, lines):
+		dotted_name_node, as_node, alias_node = aliased_import_node.children
+		self.handle_dotted_name(filepath, dotted_name_node, lines)
+		## TODO: handle alias
+
+	def handle_import(self, filepath, import_stmt, lines):
+		for child in import_stmt.children:
+			if child.type == "import":
+				pass
+			elif child.type == "dotted_name":
+				self.handle_dotted_name(filepath, child, lines)
+			elif child.type == "aliased_import":
+				self.handle_aliased_import(filepath, child, lines)
+			elif child.type == ",":
+				pass
+			else:
+				assert False
 
 	## Generate dependency graph
-	graph = {}
-	def generate_dependency_graph(filepath, import_statement):
-		if filepath in graph:
+	def process_file(self, filepath):
+		# Ensure that we don't repeat
+		if filepath in self.graph:
 			return
 
-		graph[filepath] = set()
-		tree, lines = parser.parse_file(filepath)
+		self.graph[filepath] = set()
+		tree, lines = self.parser.parse_file(filepath)
 		import_statements = [node for node in tree.root_node.children if node.type == 'import_statement']
 		import_from_statements = [node for node in tree.root_node.children if node.type == 'import_from_statement']
 	
 		for import_stmt in import_statements:
-			pass
+			self.handle_import(filepath, import_stmt, lines)
 
+	def process(self, dirpath, target_filepath):
+		## clear graph
+		self.graph = {}
+		
+		## Parse directory contents
+		if not utils.directory_contains_file(dirpath, target_filepath):
+			print("INPUT ERROR: File not within directory")
+			return
 
+		self.process_file(target_filepath)
 
+		return self.graph
 
-	generate_dependency_graph(target_filepath)
+	def dependency_paths(self, node):
+		dependencies = []
+		if node not in self.graph:
+			return dependencies
 
-	## TODO: pretty print graph
-	print(graph)
+		def visit(u):
+			for dependency in self.graph[node]:
+				pass
+
+	def run(self, dirpath, target_filepath):
+		print(self.process(dirpath, target_filepath))
 

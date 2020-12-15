@@ -1,5 +1,7 @@
-import bar
-import sys
+from include.baz import *
+import os
 
-bar.hello()
-sys.exit(1)
+goodbye()
+
+def hello():
+    print("goodbye")
