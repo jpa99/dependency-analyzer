@@ -20,6 +20,13 @@ class Node():
         label_string = " ({label})".format(label=", ".join(self.labels)) if self.labels else ""
         return "{name_string}{label_string}".format(name_string=name_string, label_string=label_string)
 
+    def __hash__(self):
+      return hash((self.name, self.ID, len(self.labels), self.alias))
+
+    def add_label(self, label):
+        print(self.name, self.ID, len(self.labels))
+        self.labels.append(label)
+
 ## File contains information about a particular file
 class File():
     def __init__(self, filepath: str, lines: list):
@@ -184,7 +191,7 @@ class DependencyAnalyzer():
             if self.config.resolve_all_imports:
                 logging.warning("Cannot resolve import {context_dotted_name} in file {filepath}.".format(context_dotted_name=context_dotted_name, filepath=file.filepath))
                 import_name = context if context else dotted_name
-                node = Node(name=import_name, ID=import_name, labels=["missing"], alias=alias)
+                node = Node(name=import_name, ID=import_name, labels=[], alias=alias)
                 self.graph[import_name] = set()
                 self.graph[file.filepath].add(node)
 
@@ -230,13 +237,17 @@ class DependencyAnalyzer():
 
     ## DFS through subtree and check if every identifier is one of the imports, remove from unused map if so
     def handle_unknown_token(self, file: File, tree_sitter_node: TreeSitterNode, imports: dict):
+        used_imports = set()
         if tree_sitter_node.type == "identifier":
             identifier = self.extract_string(tree_sitter_node, file.lines)
             if identifier in imports:
-                del imports[identifier]
+                used_imports.add(identifier)
 
         for child in tree_sitter_node.children:
-            self.handle_unknown_token(file, child, imports)
+            used_child_imports = self.handle_unknown_token(file, child, imports)
+            used_imports = used_imports.union(used_child_imports)
+
+        return used_imports
 
     ## Recursively process all files and subdirectories within given directory
     def process_dir(self, src_filepath: str, context_dotted_name: str, dirpath: str):
@@ -264,6 +275,7 @@ class DependencyAnalyzer():
         file = File(filepath, lines)
         
         imports = {}
+        used_imports = set()
         for node in tree.root_node.children:
             if self.is_import(node):
                 import_node_list = self.handle_import(file, node)
@@ -271,13 +283,16 @@ class DependencyAnalyzer():
                     if import_node:
                         imports[import_node.alias] = import_node
             elif self.config.find_unused:
-                self.handle_unknown_token(file, node, imports)
+                token_used_imports = self.handle_unknown_token(file, node, imports)
+                used_imports = used_imports.union(token_used_imports)
 
         if self.config.find_unused:
             for dependency in self.graph[filepath]:
-                print(filepath, dependency, imports)
-                if dependency.alias in imports and dependency.ID == imports[dependency.alias].ID:
-                    dependency.labels.append("unused")
+                #print("skip", dependency.ID, filepath)
+                alias = dependency.alias
+                if alias and (alias in imports) and (alias not in used_imports) and (dependency.ID == imports[alias].ID):
+                    #print(alias, dependency.ID, filepath, dependency)
+                    dependency.labels = ["unused"]
 
 
     ## Generates dependency graph for given directory and filepath, returns whether or not call was successful
