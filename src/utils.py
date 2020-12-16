@@ -18,10 +18,13 @@ def is_valid_package(package_path):
 	init_filepath = "{package_path}/__init__.py".format(package_path=package_path)
 	return os.path.exists(package_path) and os.path.isfile(init_filepath)
 
+def get_directory_contents(dirpath):
+	return os.scandir(dirpath)
+
 def get_path(dotted_name):
 	stripped = dotted_name.strip('.')
-	dots = len(dotted_name) - len(stripped)
-	prefix = [".." for i in range(dots)]
+	dots = len(dotted_name) - len(stripped) - 1
+	prefix = [".." for i in range(0, dots)]
 	suffix = stripped.split(".")
 	return "/".join(prefix + suffix)
 

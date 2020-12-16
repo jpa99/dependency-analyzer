@@ -1,7 +1,7 @@
-from include.baz import goodbye
+from include.baz import *
 import os
 
-include.baz.goodbye()
+goodbye()
 
 def hello():
     print("goodbye")
