@@ -18,22 +18,31 @@ def is_valid_package(package_path):
 	init_filepath = "{package_path}/__init__.py".format(package_path=package_path)
 	return os.path.exists(package_path) and os.path.isfile(init_filepath)
 
+## Returns contents of given directory
 def get_directory_contents(dirpath):
 	return os.scandir(dirpath)
 
+## Process dotted name to yield relative path
 def get_path(dotted_name):
 	stripped = dotted_name.strip('.')
 	dots = len(dotted_name) - len(stripped) - 1
 	prefix = [".." for i in range(0, dots)]
 	suffix = stripped.split(".")
-	return "/".join(prefix + suffix)
+	return "." if dotted_name == "." else "/".join(prefix + suffix)
 
+## Normalizes path to omit unnecessary characters
+def get_normal_path(path):
+	return os.path.normpath(path)
+
+## Parse filepath to yield filename
 def extract_filename(filepath):
 	return filepath.split("/")[-1].split(".")[0]
 
+## Get parent directory for given file
 def extract_parent_directory(filepath):
 	return os.path.dirname(filepath)
 
+## Check if given file is contained within given directory
 def directory_contains_file(dirpath, filepath):
 	directory_files = get_directory_files(dirpath)
 	return filepath in directory_files
@@ -49,7 +58,8 @@ def get_directory_files(dirpath):
 	return files
 
 ## --This function was taken from stack overflow--
-def get_packages():
+## Get a list of available libraries 
+def get_libraries():
 	lib = set()
 	std_lib = sysconfig.get_python_lib(standard_lib=True)
 	for top, dirs, files in os.walk(std_lib):

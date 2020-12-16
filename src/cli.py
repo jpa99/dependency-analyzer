@@ -1,6 +1,6 @@
 import sys
 import utils
-from analysis import DependencyAnalyzer
+from analyzer import DependencyAnalyzer
 
 ## Help routine
 def help():
