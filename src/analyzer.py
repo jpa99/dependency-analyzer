@@ -7,17 +7,17 @@ from parser import Parser
 
 ## Node represents a file or package that is imported
 class Node():
-    def __init__(self, name: str, ID: str, label="", alias=""):
-        self.name = name    # name used by the importing file 
-        self.ID = ID        # filepath or package name which uniquely identifies the file
-        self.label = label  # metadata about the node (e.g. 'stdlib' or 'unused') 
-        self.alias = alias  # alias used by importing file
+    def __init__(self, name: str, ID: str, labels=[], alias=""):
+        self.name = name        # name used by the importing file 
+        self.ID = ID            # filepath or package name which uniquely identifies the file
+        self.labels = labels    # metadata about the node (e.g. 'stdlib' or 'unused') 
+        self.alias = alias      # alias used by importing file
 
     def __str__(self):
         name_string = self.name
         if len(self.name) >= 2 and self.name[0] == "." and self.name[:2] != "..":
             name_string = self.name[1:]
-        label_string = " ({label})".format(label=self.label) if self.label else ""
+        label_string = " ({label})".format(label=", ".join(self.labels)) if self.labels else ""
         return "{name_string}{label_string}".format(name_string=name_string, label_string=label_string)
 
 ## File contains information about a particular file
@@ -32,6 +32,7 @@ class Config():
         self.logging_level = logging.DEBUG
         self.resolve_all_imports = True
         self.render_graph = True
+        self.find_unused = True
 
 ## DependencyAnalyzer class to analyze dependencies for given file and directory 
 class DependencyAnalyzer():
@@ -77,12 +78,12 @@ class DependencyAnalyzer():
     def is_import(self, tree_sitter_node: TreeSitterNode) -> bool:
         return tree_sitter_node.type == "import_statement" or tree_sitter_node.type == "import_from_statement"
 
-    ## Display the AST via DFS
-    def print_ast(self, tree_sitter_node: TreeSitterNode, count: int):
+    ## Display the parse tree via DFS
+    def print_tree(self, tree_sitter_node: TreeSitterNode, count: int):
         tab = " "*4*count
         print(tab + tree_sitter_node.type)
         for child in tree_sitter_node.children:
-            print_ast(child, count+1)
+            print_tree(child, count+1)
 
     ## Extract string from file given certain node start and end points
     def extract_string(self, tree_sitter_node: TreeSitterNode, lines: list) -> str:
@@ -112,7 +113,8 @@ class DependencyAnalyzer():
         return "".join(identifier_list)
 
     ## Resolves each import given some optional context representing a parent absolute or relative module 
-    def handle_dotted_name(self, file: File, dotted_name_node: TreeSitterNode, context_node: TreeSitterNode, alias=""):
+    ## Returns the identifier string bound to the import for the file unless the import is a wildcard import or package
+    def handle_dotted_name(self, file: File, dotted_name_node: TreeSitterNode, context_node: TreeSitterNode, alias="") -> Node:
         dotted_name = self.extract_dotted_name(dotted_name_node, file.lines)
         if not alias:
             alias = dotted_name
@@ -135,7 +137,8 @@ class DependencyAnalyzer():
         # Generate possible paths to search
         package_path = "{context_path}/{import_file}".format(context_path=context_path, import_file = import_file)
         module_path = "{package_path}.py".format(package_path = package_path)
-        
+            
+        node = None
         # Check if import is a Python file within a local module
         if utils.is_valid_module(module_path):
             normal_path = utils.get_normal_path(module_path)
@@ -165,14 +168,14 @@ class DependencyAnalyzer():
         # Check if import is a library module
         elif self.is_library(context_dotted_name):
             label = "stdlib" if self.is_stdlib(context_dotted_name) else "site_package"
-            node = Node(name=context_dotted_name, ID=context_dotted_name, label=label, alias=alias)
+            node = Node(name=context_dotted_name, ID=context_dotted_name, labels=[label], alias=alias)
             self.graph[context_dotted_name] = set()
             self.graph[file.filepath].add(node)
 
         # Check if import is an attribute of a library
         elif self.is_library(context):
             label = "stdlib" if self.is_stdlib(context) else "site_package"
-            node = Node(name=context, ID=context, label=label, alias=alias)
+            node = Node(name=context, ID=context, labels=[label], alias=alias)
             self.graph[context] = set()
             self.graph[file.filepath].add(node)
 
@@ -181,33 +184,39 @@ class DependencyAnalyzer():
             if self.config.resolve_all_imports:
                 logging.warning("Cannot resolve import {context_dotted_name} in file {filepath}.".format(context_dotted_name=context_dotted_name, filepath=file.filepath))
                 import_name = context if context else dotted_name
-                node = Node(name=import_name, ID=import_name, label="missing", alias=alias)
+                node = Node(name=import_name, ID=import_name, labels=["missing"], alias=alias)
                 self.graph[import_name] = set()
                 self.graph[file.filepath].add(node)
 
             else:
                 logging.error("Cannot resolve import {context_dotted_name} in file {filepath}.".format(context_dotted_name=context_dotted_name, filepath=file.filepath))
+
+        return node
               
     ## Extract alias and handle import normally
-    def handle_aliased_import(self, file: File, tree_sitter_node: TreeSitterNode, context: TreeSitterNode):
+    def handle_aliased_import(self, file: File, tree_sitter_node: TreeSitterNode, context: TreeSitterNode) -> Node:
         dotted_name_node, as_node, alias_node = tree_sitter_node.children
         alias = self.extract_string(alias_node, file.lines)
-        self.handle_dotted_name(file, dotted_name_node, context, alias=alias)
+        return self.handle_dotted_name(file, dotted_name_node, context, alias=alias)
 
     ## Treat a wildcard import like a normal import 
-    def handle_wildcard_import(self, file: File, tree_sitter_node: TreeSitterNode, context: TreeSitterNode):
+    def handle_wildcard_import(self, file: File, tree_sitter_node: TreeSitterNode, context: TreeSitterNode) -> Node:
         self.handle_dotted_name(file, context, None, alias="")
+        return None
 
     ## Handle each kind of import differently 
-    def delegate_import(self, file: File, import_children: list, context: TreeSitterNode):
+    def delegate_import(self, file: File, import_children: list, context: TreeSitterNode) -> list:
+        import_nodes = []
         for node in import_children:
             if node.type in self.import_delegate:
-                self.import_delegate[node.type](file, node, context)
+                import_node = self.import_delegate[node.type](file, node, context)
+                import_nodes.append(import_node)
             else:
                 logging.error("Unknown node type {nodetype} within import statement".format(nodetype=node.type))
+        return import_nodes
 
     ## Handle an import statement by differentiating between normal imports and imports 'from'
-    def handle_import(self, file: File, tree_sitter_node: TreeSitterNode):
+    def handle_import(self, file: File, tree_sitter_node: TreeSitterNode) -> list:
         ## If node is an import statement
         context = None
         import_children = tree_sitter_node.children
@@ -217,7 +226,17 @@ class DependencyAnalyzer():
             context = import_children[1]
             import_children = import_children[2:]
 
-        self.delegate_import(file, import_children, context)
+        return self.delegate_import(file, import_children, context)
+
+    ## DFS through subtree and check if every identifier is one of the imports, remove from unused map if so
+    def handle_unknown_token(self, file: File, tree_sitter_node: TreeSitterNode, imports: dict):
+        if tree_sitter_node.type == "identifier":
+            identifier = self.extract_string(tree_sitter_node, file.lines)
+            if identifier in imports:
+                del imports[identifier]
+
+        for child in tree_sitter_node.children:
+            self.handle_unknown_token(file, child, imports)
 
     ## Recursively process all files and subdirectories within given directory
     def process_dir(self, src_filepath: str, context_dotted_name: str, dirpath: str):
@@ -239,15 +258,27 @@ class DependencyAnalyzer():
 
         logging.info("[DependencyAnalyzer::process_file] Processing File {file}.".format(file=filepath))
         
-        # Iterate through the AST and process any imports
-        imports = []
+        # Iterate through the parse tree and process any imports
         self.graph[filepath] = set()
         tree, lines = self.parser.parse_file(filepath)
         file = File(filepath, lines)
         
+        imports = {}
         for node in tree.root_node.children:
             if self.is_import(node):
-                self.handle_import(file, node)
+                import_node_list = self.handle_import(file, node)
+                for import_node in import_node_list:
+                    if import_node:
+                        imports[import_node.alias] = import_node
+            elif self.config.find_unused:
+                self.handle_unknown_token(file, node, imports)
+
+        if self.config.find_unused:
+            for dependency in self.graph[filepath]:
+                print(filepath, dependency, imports)
+                if dependency.alias in imports and dependency.ID == imports[dependency.alias].ID:
+                    dependency.labels.append("unused")
+
 
     ## Generates dependency graph for given directory and filepath, returns whether or not call was successful
     def process(self, dirpath: str, filepath: str) -> bool:
