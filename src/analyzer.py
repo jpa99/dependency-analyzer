@@ -103,6 +103,7 @@ class DependencyAnalyzer():
         substring_list = [lines[startline][startidx:]]
         while currline < endline:
             substring_list.append(lines[currline])
+            currline += 1
         substring_list.append(lines[endline][:endidx])
         return "".join(substring_list)
 
@@ -146,6 +147,7 @@ class DependencyAnalyzer():
         module_path = "{package_path}.py".format(package_path = package_path)
             
         node = None
+
         # Check if import is a Python file within a local module
         if utils.is_valid_module(module_path):
             normal_path = utils.get_normal_path(module_path)
@@ -238,25 +240,23 @@ class DependencyAnalyzer():
     ## DFS through subtree and check if every identifier is one of the imports, remove from unused map if so
     def handle_unknown_token(self, file: File, tree_sitter_node: TreeSitterNode, imports: dict):
         used_imports = set()
-        if tree_sitter_node.type == "identifier":
-            identifier = self.extract_string(tree_sitter_node, file.lines)
-            if identifier in imports:
-                used_imports.add(identifier)
+        if tree_sitter_node.type in ["identifier", "attribute"]:
+            token_string = self.extract_string(tree_sitter_node, file.lines)
+            if token_string in imports:
+                used_imports.add(token_string)
 
         for child in tree_sitter_node.children:
             used_child_imports = self.handle_unknown_token(file, child, imports)
             used_imports = used_imports.union(used_child_imports)
-
         return used_imports
 
     ## Recursively process all files and subdirectories within given directory
     def process_dir(self, src_filepath: str, context_dotted_name: str, dirpath: str):
         for entry in utils.get_directory_contents(dirpath):
             entrypath = "{dirpath}/{entryname}".format(dirpath=dirpath, entryname=entry.name)
-            if entry.is_dir() and utils.is_valid_package(entrypath):
-                self.process_dir(src_filepath, context_dotted_name, entrypath)
-            elif utils.is_valid_module(entrypath):
-                module_name = "{context_dotted_name}.{entryname}".format(context_dotted_name=context_dotted_name, entryname=entry.name)
+            if utils.is_valid_module(entrypath):
+                entryname = utils.extract_filename(entry.name)
+                module_name = "{context_dotted_name}.{entryname}".format(context_dotted_name=context_dotted_name, entryname=entryname)
                 node = Node(name=module_name, ID=entrypath)
                 self.graph[src_filepath].add(node)
                 self.process_file(entrypath)
@@ -286,13 +286,14 @@ class DependencyAnalyzer():
                 token_used_imports = self.handle_unknown_token(file, node, imports)
                 used_imports = used_imports.union(token_used_imports)
 
-        if self.config.find_unused:
+        if self.config.find_unused and utils.extract_filename(filepath) != "__init__":
             for dependency in self.graph[filepath]:
                 #print("skip", dependency.ID, filepath)
                 alias = dependency.alias
                 if alias and (alias in imports) and (alias not in used_imports) and (dependency.ID == imports[alias].ID):
-                    #print(alias, dependency.ID, filepath, dependency)
+                    print(filepath, alias, dependency.ID)
                     dependency.labels = ["unused"]
+
 
 
     ## Generates dependency graph for given directory and filepath, returns whether or not call was successful
