@@ -35,11 +35,11 @@ class File():
 
 ## Config contains configuration information for the dependency analyzer
 class Config():
-    def __init__(self):
-        self.logging_level = logging.DEBUG
-        self.resolve_all_imports = True
-        self.render_graph = True
-        self.find_unused = True
+    def __init__(self, logging_level=logging.DEBUG, resolve_all_imports=True, render_graph=True, mark_unused=True):
+        self.logging_level = logging_level
+        self.resolve_all_imports = resolve_all_imports
+        self.render_graph = render_graph
+        self.mark_unused = mark_unused
 
 ## DependencyAnalyzer class to analyze dependencies for given file and directory 
 class DependencyAnalyzer():
@@ -282,11 +282,11 @@ class DependencyAnalyzer():
                 for import_node in import_node_list:
                     if import_node:
                         imports[import_node.alias] = import_node
-            elif self.config.find_unused:
+            elif self.config.mark_unused:
                 token_used_imports = self.handle_unknown_token(file, node, imports)
                 used_imports = used_imports.union(token_used_imports)
 
-        if self.config.find_unused and utils.extract_filename(filepath) != "__init__":
+        if self.config.mark_unused and utils.extract_filename(filepath) != "__init__":
             for dependency in self.graph[filepath]:
                 #print("skip", dependency.ID, filepath)
                 alias = dependency.alias

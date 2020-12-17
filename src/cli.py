@@ -1,43 +1,44 @@
 import sys
 import utils
-from analyzer import DependencyAnalyzer
+import argparse
+from analyzer import DependencyAnalyzer, Config
 
-## Help routine
-def help():
-	print("\nThe following arguments can be passed in the command line for this program:")
-	print("   * [-h]: displays a list of arguments that can be included")
-	print("   * [<dirpath>]: produces dependency graph for the Python directory <dirpath>\n\n")
-	exit(0)
 
 ## Parse command line arguments
-def parse_args(args):
-	num_args = len(args)
+def parse_args():
+	logging_levels = ["notset", "debug", "info", "warning", "error", "critical"]
+	parser = argparse.ArgumentParser(description="Analyze dependencies for input Python file.")
+	parser.add_argument("dirpath", type=str,
+	                    help="directory path to analyze")
+	parser.add_argument("filepath", type=str,
+	                    help="python file path to analyze")
 
-	## Handle help flag
-	help_flag = len(args) > 0 and args[0] == "-h"
-	if help_flag:
-		help()
-
-	## Verify that arguments list is nonempty
-	args_invalid = num_args < 2
-	if args_invalid:
-		print("\n[Command Line Error]: Missing arguments.", file=sys.stderr)
-		help()
-
-	## Ensure directory and file are valid 
-	arg1 = args[0]
-	arg2 = args[1]
-	if not utils.is_valid_dir(arg1):
-		print("\n[Command Line Error] Invalid directory \"{dirpath}\".".format(dirpath=arg1), file=sys.stderr)
-		help()
+	parser.add_argument("-l", "--logging_level", type=str, default="error",
+						choices=set(logging_levels),
+	                    help="logging level")
+	parser.add_argument("-s", "--search_imports", action='store_true',
+	                    help="flag to search local machine and check if all dependencies are installed")
+	parser.add_argument("-g", "--render_graph", action='store_true',
+	                    help="flag to render dependency graph")
+	parser.add_argument("-u", "--mark_unused", action='store_true',
+	                    help="flag to mark unused dependencies")
 	
-	elif not utils.is_valid_file(arg2):
-		print("\n[Command Line Error] Invalid file \"{filepath}\".".format(filepath=arg2), file=sys.stderr)
-		help()
-	else:
-		dependency_analyzer = DependencyAnalyzer()
-		dependency_analyzer.run(arg1, arg2)
 
-	## Ignore trailing arguments 
+
+	args = parser.parse_args()
+	render_graph = args.render_graph
+
+	if not utils.is_valid_dir(args.dirpath):
+		print("\n[Command Line Error] Invalid directory \"{dirpath}\".".format(dirpath=args.dirpath), file=sys.stderr)
+
+	
+	elif not utils.is_valid_file(args.filepath):
+		print("\n[Command Line Error] Invalid file \"{filepath}\".".format(filepath=args.filepath), file=sys.stderr)
+
+	else:
+		logging_level = logging_levels.index(args.logging_level)*10
+		config = Config(logging_level=logging_level, resolve_all_imports=not args.search_imports, render_graph=args.render_graph, mark_unused = args.mark_unused)
+		dependency_analyzer = DependencyAnalyzer(config)
+		dependency_analyzer.run(args.dirpath, args.filepath)
 
 
